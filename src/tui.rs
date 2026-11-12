@@ -398,10 +398,7 @@ impl App {
             ),
         );
         match &self.doctor.installed_client {
-            Some((tag, sha)) => {
-                push(&mut lines, "Installed client", tag.clone());
-                push(&mut lines, "Client sha256", sha.clone());
-            }
+            Some((tag, _sha)) => push(&mut lines, "Installed client", tag.clone()),
             None => push(&mut lines, "Installed client", "none".into()),
         }
         push(
@@ -425,6 +422,10 @@ impl App {
         );
         lines.push(Line::from(""));
         for check in &self.doctor.checks {
+            // The Play pane stays clean: no hashes, no log paths.
+            if check.label == "launcher build.log" {
+                continue;
+            }
             let (mark, color) = match check.severity {
                 launcher::Severity::Ok => ("ok  ", Color::Green),
                 launcher::Severity::Warn => ("warn", Color::Yellow),
@@ -804,25 +805,9 @@ fn draw_play(app: &mut App, frame: &mut Frame, area: Rect) {
         } else {
             Style::default().fg(Color::Reset)
         };
-        let sha = row
-            .client_sha256
-            .as_deref()
-            .map(|s| format!("…{}", &s[..s.len().saturating_sub(8)]))
-            .unwrap_or_else(|| "—".into());
         instance_lines.push(Line::from(vec![
             Span::styled(format!("{marker}"), style),
             Span::styled(format!("{:<42}", row.tag), style),
-        ]));
-        instance_lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(
-                format!("client sha256 {sha}"),
-                if selected {
-                    Style::default().fg(Color::Black).bg(Color::LightBlue)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
         ]));
     }
     frame.render_widget(
