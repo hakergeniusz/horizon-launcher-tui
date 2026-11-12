@@ -190,10 +190,11 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
                 println!("\n$ {}", plan.command_line());
                 return Ok(0);
             }
-            let pid = launcher::launch::spawn(&plan)?;
+            let (pid, log) = launcher::launch::spawn(&plan)?;
             println!(
-                "Started {} (pid {pid}); its output belongs to the game, not this terminal.",
-                plan.version_tag
+                "Started {} (pid {pid}); the game's output goes to {}.",
+                plan.version_tag,
+                log.display()
             );
             Ok(0)
         }

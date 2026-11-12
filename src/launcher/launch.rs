@@ -181,8 +181,12 @@ pub fn plan_launch(
     })
 }
 
-/// Actually spawn the game (detached): the caller owns when this runs.
-pub fn spawn(plan: &LaunchPlan) -> Result<u32, String> {
+/// Actually spawn the game (detached): the caller owns when this runs. The
+/// game's stdout/stderr goes to a log file in the game data dir's `logs/`
+/// (`horizon-<tag>-<stamp>.out`) — a terminal UI shares its tty with the
+/// child, and the game's renderer logs would paint over the interface.
+/// Returns the pid and the log file the game writes.
+pub fn spawn(plan: &LaunchPlan) -> Result<(u32, std::path::PathBuf), String> {
     if !plan.cwd.is_dir() {
         std::fs::create_dir_all(&plan.cwd).map_err(|e| format!("{}: {e}", plan.cwd.display()))?;
     }
@@ -198,10 +202,24 @@ pub fn spawn(plan: &LaunchPlan) -> Result<u32, String> {
     if let Some(control) = &plan.control {
         cmd.arg("--control").arg(control);
     }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let log_dir = plan.cwd.join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("{}: {e}", log_dir.display()))?;
+    let log_path = log_dir.join(format!("horizon-{}-{stamp}.out", plan.version_tag));
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("{}: {e}", log_path.display()))?;
+    cmd.stdout(log.try_clone().map_err(|e| format!("log file: {e}"))?);
+    cmd.stderr(log);
     let child = cmd
         .spawn()
         .map_err(|e| format!("{}: {e}", plan.client.display()))?;
-    Ok(child.id())
+    Ok((child.id(), log_path))
 }
 
 #[cfg(test)]

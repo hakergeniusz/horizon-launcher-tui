@@ -261,7 +261,13 @@ impl App {
             return;
         };
         match launcher::launch::spawn(&plan) {
-            Ok(pid) => self.message = format!("launched {} (pid {pid})", plan.version_tag),
+            Ok((pid, log)) => {
+                self.message = format!(
+                    "launched {} (pid {pid}); log {}",
+                    plan.version_tag,
+                    log.display()
+                );
+            }
             Err(e) => self.message = format!("launch failed: {e}"),
         }
     }
@@ -277,7 +283,9 @@ impl App {
         match launcher::launch::plan_launch(&self.paths, &tag, None)
             .and_then(|plan| launcher::launch::spawn(&plan))
         {
-            Ok(pid) => self.message = format!("▶ launched {tag} (pid {pid})"),
+            Ok((pid, log)) => {
+                self.message = format!("▶ launched {tag} (pid {pid}); log {}", log.display());
+            }
             Err(e) => self.message = format!("launch failed: {e}"),
         }
     }
@@ -668,6 +676,10 @@ pub fn run() -> Result<(), String> {
                                 (_, code) => app.handle_key(code),
                             }
                         }
+                        Event::Mouse(mouse) => {
+                            let size = terminal.size().unwrap_or_default();
+                            handle_mouse(&mut app, mouse, Rect::new(0, 0, size.width, size.height));
+                        }
                         _ => {}
                     }
                 }
@@ -771,6 +783,80 @@ fn draw(app: &mut App, frame: &mut Frame) {
         ),
     ]);
     frame.render_widget(status, chunks[2]);
+}
+
+/// Mouse: click the tab bar, click an instance row, click PLAY, scroll the
+/// panes. The hit regions mirror the draw math exactly (same layouts), so a
+/// click lands where the eye is.
+fn handle_mouse(app: &mut App, mouse: crossterm::event::MouseEvent, area: Rect) {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    let (col, row) = (mouse.column, mouse.row);
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            // The tab bar: each tab renders " {n} {name} " then one space.
+            let mut x = area.x;
+            for t in Tab::ALL.iter() {
+                let w = (t.name().len() as u16) + 4;
+                if row == area.y && col >= x && col < x + w {
+                    app.tab = *t;
+                    return;
+                }
+                x += w + 1;
+            }
+            if app.tab == Tab::Play {
+                let content = Rect {
+                    x: area.x,
+                    y: area.y + 1,
+                    width: area.width,
+                    height: area.height.saturating_sub(2),
+                };
+                let cols = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(34), Constraint::Min(30)])
+                    .split(content);
+                let left = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(6), Constraint::Length(7)])
+                    .split(cols[0]);
+                // The PLAY button block: any cell inside its border.
+                if row >= left[1].y
+                    && row < left[1].y + left[1].height
+                    && col >= left[1].x
+                    && col < left[1].x + left[1].width
+                {
+                    app.play_selected();
+                    return;
+                }
+                // An instance row (one line each, right under the block's
+                // top border).
+                let inner_y = left[0].y + 1;
+                if row >= inner_y && col >= left[0].x {
+                    let idx = (row - inner_y) as usize;
+                    if idx < app.instances.len() {
+                        app.instance_cursor = idx;
+                    }
+                }
+            }
+        }
+        MouseEventKind::ScrollUp => match app.tab {
+            Tab::Play => app.instance_cursor = app.instance_cursor.saturating_sub(1),
+            Tab::Build => app.build_scroll = app.build_scroll.saturating_sub(4),
+            Tab::Mods => app.mod_cursor = app.mod_cursor.saturating_sub(1),
+            _ => {}
+        },
+        MouseEventKind::ScrollDown => match app.tab {
+            Tab::Play => {
+                app.instance_cursor =
+                    (app.instance_cursor + 1).min(app.instances.len().saturating_sub(1));
+            }
+            Tab::Build => app.build_scroll += 4,
+            Tab::Mods => {
+                app.mod_cursor = (app.mod_cursor + 1).min(app.mods.len().saturating_sub(1));
+            }
+            _ => {}
+        },
+        _ => {}
+    }
 }
 
 /// The Play pane: instances on the left with the big PLAY button under
@@ -918,14 +1004,22 @@ fn draw_play(app: &mut App, frame: &mut Frame, area: Rect) {
 fn setup() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>, Box<dyn std::error::Error>> {
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
+    crossterm::execute!(
+        stdout,
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     Ok(terminal)
 }
 
 fn restore() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout();
-    crossterm::execute!(stdout, crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::execute!(
+        stdout,
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen
+    )?;
     crossterm::terminal::disable_raw_mode()?;
     Ok(())
 }
