@@ -131,11 +131,7 @@ fn hnmod_files(dir: &Path) -> Vec<PathBuf> {
         .map(|rd| {
             rd.flatten()
                 .map(|e| e.path())
-                .filter(|p| {
-                    p.is_file()
-                        && p.extension()
-                            .is_some_and(|e| e == "hnmod")
-                })
+                .filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "hnmod"))
                 .collect()
         })
         .unwrap_or_default();
@@ -194,17 +190,29 @@ horizon_revision = "6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a"
     #[test]
     fn enable_state_reads_and_writes() {
         let tmp = temp_root("modslist-state");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         fixture(&paths);
         assert!(is_enabled(&paths.mods_list(), "zoom"));
         assert!(!is_enabled(&paths.mods_list(), "nofall"));
-        assert!(!is_enabled(&paths.mods_list(), "absent"), "no line means off");
+        assert!(
+            !is_enabled(&paths.mods_list(), "absent"),
+            "no line means off"
+        );
 
         set_enabled(&paths.mods_list(), "zoom", false).unwrap();
         assert!(!is_enabled(&paths.mods_list(), "zoom"));
         let text = std::fs::read_to_string(paths.mods_list()).unwrap();
-        assert!(text.contains("mod.nofall:false"), "other lines kept: {text}");
-        assert!(text.contains("key.zoom.zoom:key.keyboard.c"), "key bindings kept: {text}");
+        assert!(
+            text.contains("mod.nofall:false"),
+            "other lines kept: {text}"
+        );
+        assert!(
+            text.contains("key.zoom.zoom:key.keyboard.c"),
+            "key bindings kept: {text}"
+        );
 
         set_enabled(&paths.mods_list(), "shulker_peek", true).unwrap();
         assert!(is_enabled(&paths.mods_list(), "shulker_peek"));
@@ -213,7 +221,10 @@ horizon_revision = "6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a"
     #[test]
     fn list_rows_merge_extracted_and_game_dir() {
         let tmp = temp_root("modslist-rows");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         fixture(&paths);
         let rows = list_mods(&paths).unwrap();
         assert_eq!(rows.len(), 1);

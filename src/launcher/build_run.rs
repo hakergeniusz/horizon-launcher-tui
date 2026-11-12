@@ -17,7 +17,10 @@ use std::process::Command;
 /// mixins CLI refuses them too).
 fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
-    for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))?.flatten() {
+    for entry in std::fs::read_dir(from)
+        .map_err(|e| format!("{}: {e}", from.display()))?
+        .flatten()
+    {
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         let target = to.join(entry.file_name());
         if kind.is_dir() {
@@ -106,11 +109,20 @@ fn run_cargo(
 ) -> Result<(), String> {
     use std::io::BufRead;
     let (cargo_profile, configs) = plan.profile.cargo();
-    let mut cmd = Command::new(&paths.rust_toolchain().expect("checked at plan time").1.join("bin/cargo"));
+    let mut cmd = Command::new(
+        &paths
+            .rust_toolchain()
+            .expect("checked at plan time")
+            .1
+            .join("bin/cargo"),
+    );
     toolchain_env(&mut cmd, paths, rust_dir);
     super::exec::pin_cargo_jobs(&mut cmd);
     cmd.env("CARGO_TARGET_DIR", paths.native_target())
-        .env("HORIZON_MOD_API_INJECTIONS", plan.stage_dir.join(INJECTIONS_FILE))
+        .env(
+            "HORIZON_MOD_API_INJECTIONS",
+            plan.stage_dir.join(INJECTIONS_FILE),
+        )
         .arg("build")
         .arg("--manifest-path")
         .arg(plan.stage_dir.join("Cargo.toml"))
@@ -120,7 +132,8 @@ fn run_cargo(
         .arg(cargo_profile);
     let source = paths.source(&plan.revision);
     if source.join(".cargo").join("config.toml").is_file() {
-        cmd.arg("--config").arg(source.join(".cargo").join("config.toml"));
+        cmd.arg("--config")
+            .arg(source.join(".cargo").join("config.toml"));
     }
     for config in configs {
         cmd.arg("--config").arg(config);
@@ -141,13 +154,19 @@ fn run_cargo(
     let stdout = child.stdout.take().expect("piped");
     let stdout_thread_data = std::thread::spawn(move || -> String {
         let mut text = String::new();
-        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+        for line in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+        {
             text.push_str(&line);
             text.push('\n');
         }
         text
     });
-    for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+    for line in std::io::BufReader::new(stderr)
+        .lines()
+        .map_while(Result::ok)
+    {
         on_line(&line);
     }
     let stdout_text = stdout_thread_data.join().unwrap_or_default();
@@ -172,8 +191,11 @@ pub fn run_build(
     std::fs::create_dir_all(&plan.compose_dir).map_err(|e| e.to_string())?;
     for m in &plan.mods {
         copy_tree(&m.source_dir, &m.compose_dir)?;
-        std::fs::write(m.compose_dir.join(super::manifests::MANIFEST), &m.manifest_text)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            m.compose_dir.join(super::manifests::MANIFEST),
+            &m.manifest_text,
+        )
+        .map_err(|e| e.to_string())?;
         on_line(&format!("composed {} ({} files)", m.id, m.files.len()));
     }
 
@@ -185,7 +207,11 @@ pub fn run_build(
         .and_then(|(v, dir)| (v == RUST_VERSION).then_some(dir))
         .ok_or_else(|| format!("no pinned Rust toolchain {RUST_VERSION}"))?;
     let mixins_tool = paths.mixins_tool(&plan.mixins_rev);
-    on_line(&format!("applying mixins {} on {}", super::modslist::shorten(&plan.mixins_rev), super::modslist::shorten(&plan.revision)));
+    on_line(&format!(
+        "applying mixins {} on {}",
+        super::modslist::shorten(&plan.mixins_rev),
+        super::modslist::shorten(&plan.revision)
+    ));
     run_tool(
         paths,
         &mixins_tool,
@@ -208,22 +234,36 @@ pub fn run_build(
         super::plan::injections_content().to_string(),
     )
     .map_err(|e| format!("{}: {e}", plan.stage_dir.join(INJECTIONS_FILE).display()))?;
-    on_line(&format!("wrote {}", plan.stage_dir.join(INJECTIONS_FILE).display()));
+    on_line(&format!(
+        "wrote {}",
+        plan.stage_dir.join(INJECTIONS_FILE).display()
+    ));
 
-    on_line(&format!("building horizon-client (cargo profile {})", plan.profile.cargo().0));
+    on_line(&format!(
+        "building horizon-client (cargo profile {})",
+        plan.profile.cargo().0
+    ));
     run_cargo(paths, plan, &rust_dir, |line| on_line(line))?;
 
     let version_dir = &plan.version_dir;
     std::fs::create_dir_all(version_dir).map_err(|e| e.to_string())?;
     let staging = version_dir.join(".horizon-client.new");
-    std::fs::copy(&plan.target_binary, &staging)
-        .map_err(|e| format!("{} → {}: {e}", plan.target_binary.display(), staging.display()))?;
+    std::fs::copy(&plan.target_binary, &staging).map_err(|e| {
+        format!(
+            "{} → {}: {e}",
+            plan.target_binary.display(),
+            staging.display()
+        )
+    })?;
     // Same-directory rename: a running game keeps the old binary (a plain
     // write would fail ETXTBSY or swap under it).
     std::fs::rename(&staging, version_dir.join("horizon-client"))
         .map_err(|e| format!("install rename: {e}"))?;
     std::fs::write(version_dir.join(".installed"), b"").map_err(|e| e.to_string())?;
-    on_line(&format!("installed {}", version_dir.join("horizon-client").display()));
+    on_line(&format!(
+        "installed {}",
+        version_dir.join("horizon-client").display()
+    ));
 
     let mut records = read_records(&paths.built_json());
     records.insert(plan.record_key.clone(), plan.record.clone());
@@ -245,7 +285,10 @@ mod tests {
     #[test]
     fn last_lines_helper() {
         let lines: Vec<&str> = vec!["a", "b", "c", "d"];
-        assert_eq!(lines.into_iter().last_lines(2), vec!["c".to_string(), "d".to_string()]);
+        assert_eq!(
+            lines.into_iter().last_lines(2),
+            vec!["c".to_string(), "d".to_string()]
+        );
         assert_eq!(vec!["x"].into_iter().last_lines(12), vec!["x".to_string()]);
     }
 

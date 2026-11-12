@@ -110,7 +110,11 @@ impl LauncherPaths {
             })
             .collect();
         found.sort();
-        found.iter().find(|(v, _)| v == "1.99.1").cloned().or_else(|| found.pop())
+        found
+            .iter()
+            .find(|(v, _)| v == "1.99.1")
+            .cloned()
+            .or_else(|| found.pop())
     }
 
     /// The pinned `CARGO_HOME` (`<root>/cargo`).
@@ -227,7 +231,9 @@ mod tests {
         };
         assert!(paths.rust_toolchain().is_none());
         let mk = |v: &str| {
-            let d = tmp.join("rust").join(format!("{v}-x86_64-unknown-linux-gnu"));
+            let d = tmp
+                .join("rust")
+                .join(format!("{v}-x86_64-unknown-linux-gnu"));
             std::fs::create_dir_all(d.join("bin")).unwrap();
             std::fs::write(d.join("bin").join("cargo"), "").unwrap();
         };
@@ -256,7 +262,11 @@ mod tests {
         if !paths.root.is_dir() {
             return;
         }
-        assert!(paths.versions().is_dir(), "versions/ missing under {}", paths.root.display());
+        assert!(
+            paths.versions().is_dir(),
+            "versions/ missing under {}",
+            paths.root.display()
+        );
     }
 
     #[test]

@@ -29,10 +29,10 @@ impl Settings {
     /// plus `native/built.json`'s profile keys.
     pub fn load(paths: &LauncherPaths) -> Settings {
         let selected = read_string(&paths.settings_json(), "selected");
-        let launcher_profile = read_string(&paths.settings_json(), "native_profile")
-            .and_then(|s| Profile::parse(&s));
-        let tool_profile = read_string(&paths.overrides_json(), "profile")
-            .and_then(|s| Profile::parse(&s));
+        let launcher_profile =
+            read_string(&paths.settings_json(), "native_profile").and_then(|s| Profile::parse(&s));
+        let tool_profile =
+            read_string(&paths.overrides_json(), "profile").and_then(|s| Profile::parse(&s));
         let built_profile = super::records::read_records(&paths.built_json())
             .keys()
             .find_map(|k| Profile::parse(k));
@@ -90,9 +90,15 @@ mod tests {
     #[test]
     fn effective_profile_precedence() {
         let tmp = temp_root("settings-precedence");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         // No files at all: the launcher's default.
-        assert_eq!(Settings::load(&paths).effective_profile(), Profile::Performance);
+        assert_eq!(
+            Settings::load(&paths).effective_profile(),
+            Profile::Performance
+        );
 
         // built.json only.
         write(
@@ -106,7 +112,10 @@ mod tests {
             &paths.settings_json(),
             r#"{"selected": "nightly-2026-11-08-fdc87ae", "native_profile": "performance"}"#,
         );
-        assert_eq!(Settings::load(&paths).effective_profile(), Profile::Performance);
+        assert_eq!(
+            Settings::load(&paths).effective_profile(),
+            Profile::Performance
+        );
 
         // This tool's own override wins over both.
         Settings::store_profile(&paths, Profile::Dev).unwrap();

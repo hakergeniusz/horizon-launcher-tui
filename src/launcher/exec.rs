@@ -16,9 +16,7 @@ use std::process::Command;
 /// Whether the low-priority wrappers exist on PATH.
 fn have(program: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
-        })
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
         .unwrap_or(false)
 }
 

@@ -63,7 +63,10 @@ fn game_version(version_dir: &Path) -> Option<String> {
     }
     let bytes = std::fs::read(version_dir.join("research-lock.json")).ok()?;
     let lock: Lock = serde_json::from_slice(&bytes).ok()?;
-    lock.minecraft.get("version").and_then(|v| v.as_str()).map(str::to_owned)
+    lock.minecraft
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
 }
 
 /// The versions this tool can launch, newest first (mtime order): only
@@ -91,7 +94,15 @@ pub fn launchable_versions(paths: &LauncherPaths) -> Vec<VersionRow> {
                 .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::UNIX_EPOCH);
-            rows.push((mtime, VersionRow { tag, native, installed, client_sha256: sha }));
+            rows.push((
+                mtime,
+                VersionRow {
+                    tag,
+                    native,
+                    installed,
+                    client_sha256: sha,
+                },
+            ));
         }
     }
     rows.sort_by(|a, b| b.0.cmp(&a.0));
@@ -142,7 +153,10 @@ pub fn plan_launch(
         ));
     }
     let game_home = paths.game_home.clone();
-    let mut env = vec![("HORIZON_HOME".to_string(), game_home.to_string_lossy().into_owned())];
+    let mut env = vec![(
+        "HORIZON_HOME".to_string(),
+        game_home.to_string_lossy().into_owned(),
+    )];
     if std::env::var_os("PIPEWIRE_PROPS").is_none() {
         env.push((
             "PIPEWIRE_PROPS".to_string(),
@@ -196,7 +210,10 @@ mod tests {
     use crate::launcher::testutil::temp_root;
 
     fn fixture(tmp: &Path) -> LauncherPaths {
-        let paths = LauncherPaths { root: tmp.to_path_buf(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.to_path_buf(),
+            game_home: tmp.join("game"),
+        };
         let dir = paths.version_dir("native-2ebf00a-42ebf5dd24f9");
         std::fs::create_dir_all(dir.join(".local/horizon-client/26.3")).unwrap();
         std::fs::write(dir.join("horizon-client"), b"MZ-fake").unwrap();
@@ -219,19 +236,28 @@ mod tests {
         let plan = plan_launch(&paths, &tag, None).unwrap();
         assert_eq!(plan.cwd, paths.game_home);
         assert!(plan.client.ends_with("horizon-client"));
+        assert!(
+            plan.resources.ends_with(".local/horizon-client/26.3"),
+            "{}",
+            plan.resources.display()
+        );
         assert!(plan
-            .resources
-            .ends_with(".local/horizon-client/26.3"), "{}", plan.resources.display());
-        assert!(plan.env.iter().any(|(k, v)| k == "HORIZON_HOME" && v.as_str() == paths.game_home.to_string_lossy()));
+            .env
+            .iter()
+            .any(|(k, v)| k == "HORIZON_HOME" && v.as_str() == paths.game_home.to_string_lossy()));
         assert!(plan.env.iter().any(|(k, _)| k == "PIPEWIRE_PROPS"));
-        assert!(plan.removed_env.contains(&"HORIZON_ACCOUNT_SESSIONS".to_string()));
+        assert!(plan
+            .removed_env
+            .contains(&"HORIZON_ACCOUNT_SESSIONS".to_string()));
         let line = plan.command_line();
         assert!(line.contains("--resources"), "{line}");
         assert!(!line.contains("--control"), "{line}");
 
         // --control only behind the flag.
         let with_control = plan_launch(&paths, &tag, Some("/tmp/ctl.sock")).unwrap();
-        assert!(with_control.command_line().contains("--control /tmp/ctl.sock"));
+        assert!(with_control
+            .command_line()
+            .contains("--control /tmp/ctl.sock"));
     }
 
     #[test]
@@ -248,7 +274,10 @@ mod tests {
     #[test]
     fn newest_native_version_wins() {
         let tmp = temp_root("launch-newest");
-        let paths = LauncherPaths { root: tmp.to_path_buf(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.to_path_buf(),
+            game_home: tmp.join("game"),
+        };
         // The older version first, so its mtime is older (creation order).
         let make = |tag: &str| {
             let dir = paths.version_dir(tag);

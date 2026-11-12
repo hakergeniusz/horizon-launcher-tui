@@ -108,13 +108,19 @@ impl BuildPlan {
     /// Human-readable summary lines (used by `build --dry-run` and the TUI).
     pub fn render(&self) -> Vec<String> {
         let mut out = Vec::new();
-        out.push(format!("Profile:          {} (cargo profile {})", self.profile.name(), self.profile.cargo().0));
+        out.push(format!(
+            "Profile:          {} (cargo profile {})",
+            self.profile.name(),
+            self.profile.cargo().0
+        ));
         out.push(format!("Horizon revision: {}", self.revision));
         out.push(format!("Mixins revision:  {}", self.mixins_rev));
         out.push(format!("Version tag:      {}", self.version_tag));
         let kind = match &self.plan_kind {
             PlanKind::UpToDate => "up to date (no build needed)".to_string(),
-            PlanKind::Incremental(changes) => format!("incremental rebuild: {}", changes.join("; ")),
+            PlanKind::Incremental(changes) => {
+                format!("incremental rebuild: {}", changes.join("; "))
+            }
             PlanKind::First => "first build: the whole game (several minutes)".to_string(),
         };
         out.push(format!("Plan:             {kind}"));
@@ -129,7 +135,11 @@ impl BuildPlan {
         for m in &self.mods {
             let repin = match &m.repin {
                 Some((from, to)) => match from {
-                    Some(from) => format!(" (pin rewritten {} → {})", super::modslist::shorten(from), super::modslist::shorten(to)),
+                    Some(from) => format!(
+                        " (pin rewritten {} → {})",
+                        super::modslist::shorten(from),
+                        super::modslist::shorten(to)
+                    ),
                     None => format!(" (pin set to {})", super::modslist::shorten(to)),
                 },
                 None => String::new(),
@@ -169,7 +179,10 @@ pub enum RevisionChoice {
 /// (`built.json`, any profile, `fast` preferred). The GUI launcher resolves
 /// its base version through GitHub; this tool stays offline and follows what
 /// this machine last built, which is also what `native/source/` pins.
-pub fn choose_revision(paths: &LauncherPaths, explicit: Option<&str>) -> Result<RevisionChoice, String> {
+pub fn choose_revision(
+    paths: &LauncherPaths,
+    explicit: Option<&str>,
+) -> Result<RevisionChoice, String> {
     if let Some(rev) = explicit {
         let rev = rev.trim().to_string();
         if rev.len() != 40 || !rev.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -212,10 +225,18 @@ pub fn choose_mixins_rev(paths: &LauncherPaths, mods: &[&Bundle]) -> Result<Stri
     pins.sort_unstable();
     pins.dedup();
     if pins.len() < 2 {
-        return Ok(pins.first().map(|s| s.to_string()).unwrap_or_else(|| MIXINS_REV.to_string()));
+        return Ok(pins
+            .first()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| MIXINS_REV.to_string()));
     }
-    if let Some(bad) = pins.iter().find(|p| !(p.len() == 40 && p.chars().all(|c| c.is_ascii_hexdigit()))) {
-        return Err(format!("{bad} is not a horizon-mixins commit (40 hex digits)."));
+    if let Some(bad) = pins
+        .iter()
+        .find(|p| !(p.len() == 40 && p.chars().all(|c| c.is_ascii_hexdigit())))
+    {
+        return Err(format!(
+            "{bad} is not a horizon-mixins commit (40 hex digits)."
+        ));
     }
     let mut candidates: Vec<&str> = pins.clone();
     if !candidates.contains(&MIXINS_REV) {
@@ -240,7 +261,8 @@ fn commit_dates(path: &Path) -> BTreeMap<String, String> {
     std::fs::read(path)
         .ok()
         .and_then(|b| {
-            let value: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&b).ok()?;
+            let value: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_slice(&b).ok()?;
             Some(
                 value
                     .into_iter()
@@ -262,12 +284,7 @@ fn commit_dates(path: &Path) -> BTreeMap<String, String> {
 /// version, the revision — then, per bundle in compose order, the bundle id
 /// (0 byte) and its files as `(name bytes, length LE, bytes)`. Key: hex of
 /// the first 6 bytes.
-pub fn version_for(
-    revision: &str,
-    mixins: &str,
-    profile: Profile,
-    mods: &[PlannedMod],
-) -> String {
+pub fn version_for(revision: &str, mixins: &str, profile: Profile, mods: &[PlannedMod]) -> String {
     let (cargo_profile, configs) = profile.cargo();
     let mut hash = Sha256::new();
     for part in [mixins, cargo_profile]
@@ -315,7 +332,9 @@ fn collect_files(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) -> 
         } else {
             format!("{prefix}/{}", entry.file_name().to_string_lossy())
         };
-        let kind = entry.file_type().map_err(|e| format!("{}: {e}", path.display()))?;
+        let kind = entry
+            .file_type()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         if kind.is_dir() {
             collect_files(&path, &name, out)?;
         } else if kind.is_file() {
@@ -333,10 +352,7 @@ pub fn has_mods_feature(source: &Path) -> bool {
     let path = source.join("crates/horizon-client/Cargo.toml");
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let value: toml::Table = text.parse().unwrap_or_default();
-    value
-        .get("features")
-        .and_then(|f| f.get("mods"))
-        .is_some()
+    value.get("features").and_then(|f| f.get("mods")).is_some()
 }
 
 /// Whether the workspace carries `.cargo/config.toml` — the stage is a copy
@@ -482,7 +498,8 @@ pub fn plan_build(
         .native_target()
         .join(profile.target_dir_name())
         .join("horizon-client");
-    let exists = version_dir.join(".installed").is_file() && version_dir.join("horizon-client").is_file();
+    let exists =
+        version_dir.join(".installed").is_file() && version_dir.join("horizon-client").is_file();
 
     // The record this build will produce.
     let record = Record {
@@ -501,7 +518,13 @@ pub fn plan_build(
     let rust_dir = paths
         .rust_toolchain()
         .and_then(|(v, dir)| (v == RUST_VERSION).then_some(dir))
-        .ok_or_else(|| format!("No pinned Rust toolchain {} under {}.", RUST_VERSION, paths.root.join("rust").display()))?;
+        .ok_or_else(|| {
+            format!(
+                "No pinned Rust toolchain {} under {}.",
+                RUST_VERSION,
+                paths.root.join("rust").display()
+            )
+        })?;
     let cargo_bin = rust_dir.join("bin").join("cargo");
     let mixins_tool = paths.mixins_tool(&mixins_rev);
 
@@ -509,7 +532,11 @@ pub fn plan_build(
     // 1. Compose: clean, then one copy per bundle (re-rooted).
     steps.push(PlanStep {
         title: format!("Compose the --mods dir ({})", compose_dir.display()),
-        command: format!("rm -rf {} && mkdir -p {}", sh(&compose_dir), sh(&compose_dir)),
+        command: format!(
+            "rm -rf {} && mkdir -p {}",
+            sh(&compose_dir),
+            sh(&compose_dir)
+        ),
         executed_by_tool: true,
     });
     for m in &planned {
@@ -553,10 +580,7 @@ pub fn plan_build(
     // 3. The injections file the game's build.rs requires.
     steps.push(PlanStep {
         title: format!("Write {INJECTIONS_FILE} with content []"),
-        command: format!(
-            "printf '[]' > {}",
-            sh(&stage_dir.join(INJECTIONS_FILE))
-        ),
+        command: format!("printf '[]' > {}", sh(&stage_dir.join(INJECTIONS_FILE))),
         executed_by_tool: true,
     });
     // 4. Build.
@@ -641,7 +665,10 @@ fn build_command(
     parts.push("nice -n 19 ionice -c 3".to_string());
     parts.push(sh(cargo_bin));
     parts.push("build".to_string());
-    parts.push(format!("--manifest-path {}", sh(&stage_dir.join("Cargo.toml"))));
+    parts.push(format!(
+        "--manifest-path {}",
+        sh(&stage_dir.join("Cargo.toml"))
+    ));
     parts.push("--locked".to_string());
     parts.push("--offline".to_string());
     if stage_has_cargo_config(source) {
@@ -668,9 +695,10 @@ pub fn sh(path: &Path) -> String {
     if text.is_empty() {
         return "''".into();
     }
-    if text.chars().all(|c| {
-        c.is_ascii_alphanumeric() || "/._-+=:@%,".contains(c)
-    }) {
+    if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+=:@%,".contains(c))
+    {
         text.into_owned()
     } else {
         format!("'{}'", text.replace('\'', r"'\''"))
@@ -736,7 +764,11 @@ mod tests {
         std::fs::create_dir_all(&paths.game_home).unwrap();
         std::fs::write(
             paths.mods_list(),
-            if enabled { "mod.freecam:true\n" } else { "mod.freecam:false\n" },
+            if enabled {
+                "mod.freecam:true\n"
+            } else {
+                "mod.freecam:false\n"
+            },
         )
         .unwrap();
         // built.json with the revision we build on.
@@ -779,7 +811,11 @@ mod tests {
             Some((Some(FREECAM_REV.to_string()), REV.to_string()))
         );
         assert_eq!(plan.warnings.len(), 1);
-        assert!(plan.warnings[0].contains("freecam → af55a73"), "{}", plan.warnings[0]);
+        assert!(
+            plan.warnings[0].contains("freecam → af55a73"),
+            "{}",
+            plan.warnings[0]
+        );
         assert_eq!(plan.disabled, Vec::<String>::new());
 
         // The planned manifest text carries the new pin.
@@ -787,11 +823,18 @@ mod tests {
 
         // The steps match the recipe, in order.
         let titles: Vec<&str> = plan.steps.iter().map(|s| s.title.as_str()).collect();
-        assert!(titles[0].starts_with("Compose the --mods dir"), "{titles:?}");
+        assert!(
+            titles[0].starts_with("Compose the --mods dir"),
+            "{titles:?}"
+        );
         assert!(titles.iter().any(|t| t.starts_with("Copy mod freecam")));
-        assert!(titles.iter().any(|t| t.starts_with("Rewrite pin of freecam")));
+        assert!(titles
+            .iter()
+            .any(|t| t.starts_with("Rewrite pin of freecam")));
         assert!(titles.iter().any(|t| t.starts_with("Apply mixins into")));
-        assert!(titles.iter().any(|t| t.starts_with("Write .horizon-mod-api-injections.json")));
+        assert!(titles
+            .iter()
+            .any(|t| t.starts_with("Write .horizon-mod-api-injections.json")));
         assert!(titles.iter().any(|t| t.starts_with("Build horizon-client")));
         assert!(titles.iter().any(|t| t.starts_with("Install into")));
         assert!(titles.iter().any(|t| t.starts_with("Update built.json")));
@@ -802,7 +845,11 @@ mod tests {
             .iter()
             .find(|s| s.title.starts_with("Apply mixins"))
             .unwrap();
-        assert!(apply.command.contains("apply --workspace"), "{}", apply.command);
+        assert!(
+            apply.command.contains("apply --workspace"),
+            "{}",
+            apply.command
+        );
         assert!(apply.command.contains("--mods"), "{}", apply.command);
         assert!(apply.command.contains("--out"), "{}", apply.command);
 
@@ -813,21 +860,57 @@ mod tests {
             .find(|s| s.title.starts_with("Build horizon-client"))
             .unwrap();
         assert!(build.command.contains("CARGO_HOME="), "{}", build.command);
-        assert!(build.command.contains("CARGO_TARGET_DIR="), "{}", build.command);
-        assert!(build.command.contains("HORIZON_MOD_API_INJECTIONS="), "{}", build.command);
-        assert!(build.command.contains("--manifest-path"), "{}", build.command);
+        assert!(
+            build.command.contains("CARGO_TARGET_DIR="),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("HORIZON_MOD_API_INJECTIONS="),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("--manifest-path"),
+            "{}",
+            build.command
+        );
         assert!(build.command.contains("--locked"), "{}", build.command);
         assert!(build.command.contains("--offline"), "{}", build.command);
-        assert!(build.command.contains("--profile fast"), "{}", build.command);
-        assert!(build.command.contains("-p horizon-client"), "{}", build.command);
-        assert!(build.command.contains("--bin horizon-client"), "{}", build.command);
-        assert!(build.command.contains("nice -n 19 ionice -c 3"), "{}", build.command);
-        assert!(build.command.contains("CARGO_BUILD_JOBS=2"), "{}", build.command);
+        assert!(
+            build.command.contains("--profile fast"),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("-p horizon-client"),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("--bin horizon-client"),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("nice -n 19 ionice -c 3"),
+            "{}",
+            build.command
+        );
+        assert!(
+            build.command.contains("CARGO_BUILD_JOBS=2"),
+            "{}",
+            build.command
+        );
         // The source has no `mods` feature, so no --features flag.
         assert!(!build.command.contains("--features"), "{}", build.command);
 
         // Version tag shape and record.
-        assert!(plan.version_tag.starts_with("native-2ebf00a-"), "{}", plan.version_tag);
+        assert!(
+            plan.version_tag.starts_with("native-2ebf00a-"),
+            "{}",
+            plan.version_tag
+        );
         assert_eq!(plan.version_tag.len(), "native-2ebf00a-42ebf5dd24f9".len());
         assert_eq!(plan.record.horizon, REV);
         assert_eq!(plan.record_key, "fast");
@@ -882,7 +965,13 @@ mod tests {
         let choice = choose_revision(&paths, None).unwrap();
         let plan = plan_build(&paths, Profile::Performance, &choice).unwrap();
         let zoom = plan.mods.iter().find(|m| m.id == "zoom").unwrap();
-        assert_eq!(zoom.repin, Some((Some("6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a".into()), REV.into())));
+        assert_eq!(
+            zoom.repin,
+            Some((
+                Some("6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a".into()),
+                REV.into()
+            ))
+        );
         // The warning still names freecam, not zoom.
         assert!(plan.warnings[0].contains("freecam"));
         assert!(!plan.warnings[0].contains("zoom"));
@@ -910,7 +999,10 @@ mod tests {
         };
         // Same state: incremental with nothing but settings.
         let kind = classify(false, Some(&now), &now);
-        assert_eq!(kind, PlanKind::Incremental(vec!["the build settings".into()]));
+        assert_eq!(
+            kind,
+            PlanKind::Incremental(vec!["the build settings".into()])
+        );
         // A changed mod hash shows up.
         let before = Record {
             horizon: REV.into(),
@@ -973,7 +1065,10 @@ mod tests {
         let paths = fixture(&tmp, true);
         assert!(choose_revision(&paths, Some("nope")).is_err());
         assert!(choose_revision(&paths, Some(REV)).is_ok());
-        assert!(choose_revision(&paths, Some(&"0".repeat(40))).is_err(), "no source for it");
+        assert!(
+            choose_revision(&paths, Some(&"0".repeat(40))).is_err(),
+            "no source for it"
+        );
     }
 
     #[test]

@@ -143,8 +143,8 @@ pub fn rewrite_pin(manifest_bytes: &[u8], revision: &str) -> Result<String, Stri
 /// sits beside the bundle.
 pub fn bundle_from_dir(dir: &Path, mixins: Option<String>) -> Result<Bundle, String> {
     let manifest_path = dir.join(MANIFEST);
-    let bytes = std::fs::read(&manifest_path)
-        .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+    let bytes =
+        std::fs::read(&manifest_path).map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let manifest = parse_mixin_manifest(&bytes)?;
     Ok(Bundle {
         id: manifest.id,
@@ -167,8 +167,8 @@ pub fn bundle_in(dir: &Path) -> Result<Option<Bundle>, String> {
     if !native_path.is_file() {
         return Ok(None);
     }
-    let bytes = std::fs::read(&native_path)
-        .map_err(|e| format!("{}: {e}", native_path.display()))?;
+    let bytes =
+        std::fs::read(&native_path).map_err(|e| format!("{}: {e}", native_path.display()))?;
     let native = NativeManifest::parse(&bytes)?;
     let found = bundle_from_dir(&dir.join("mixins").join(&native.id), native.mixins.clone())?;
     match (&found.horizon, &native.horizon) {
@@ -258,7 +258,11 @@ helper = "key.rs"
 
     #[test]
     fn rewrites_pin_only() {
-        let rewritten = rewrite_pin(SAMPLE_MIXIN.as_bytes(), "2ebf00a0281c592f79191e76fce0e7d522c6f425").unwrap();
+        let rewritten = rewrite_pin(
+            SAMPLE_MIXIN.as_bytes(),
+            "2ebf00a0281c592f79191e76fce0e7d522c6f425",
+        )
+        .unwrap();
         let m = parse_mixin_manifest(rewritten.as_bytes()).unwrap();
         assert_eq!(m.id, "freecam", "other fields survive");
         assert_eq!(m.version, "0.1.0");

@@ -43,7 +43,11 @@ pub fn last_record(records: &BTreeMap<String, Record>) -> Option<(String, &Recor
 /// Write the records back, backing the previous file up to `bak` first. The
 /// JSON shape matches the launcher's: a map of pretty-printed records with
 /// sorted keys (a `BTreeMap` serializes sorted).
-pub fn write_records(path: &Path, bak: &Path, records: &BTreeMap<String, Record>) -> Result<(), String> {
+pub fn write_records(
+    path: &Path,
+    bak: &Path,
+    records: &BTreeMap<String, Record>,
+) -> Result<(), String> {
     if path.is_file() {
         std::fs::copy(path, bak).map_err(|e| format!("backup {}: {e}", bak.display()))?;
     }
@@ -79,17 +83,15 @@ pub fn file_sha256(path: &Path) -> Result<String, String> {
     let mut hash = Sha256::new();
     let mut buf = vec![0u8; 256 * 1024];
     loop {
-        let n = file.read(&mut buf).map_err(|e| format!("{}: {e}", path.display()))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         if n == 0 {
             break;
         }
         hash.update(&buf[..n]);
     }
-    Ok(hash
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[cfg(test)]
@@ -119,14 +121,21 @@ mod tests {
         // A second write copies the previous file aside.
         records.insert(
             "release".to_string(),
-            Record { horizon: "a".into(), mixins: "b".into(), mods: BTreeMap::new() },
+            Record {
+                horizon: "a".into(),
+                mixins: "b".into(),
+                mods: BTreeMap::new(),
+            },
         );
         write_records(&path, &bak, &records).unwrap();
         assert!(bak.exists());
         let first = read_records(&bak);
         assert_eq!(first.len(), 1, "the backup holds the previous state");
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("\"fast\""), "profile keys sorted/kept: {text}");
+        assert!(
+            text.contains("\"fast\""),
+            "profile keys sorted/kept: {text}"
+        );
     }
 
     #[test]

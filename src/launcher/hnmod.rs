@@ -61,7 +61,13 @@ pub fn read_manifest(path: &Path) -> Result<NativeManifest, String> {
         .map_err(|e| format!("{}: not a readable .hnmod zip: {e}", path.display()))?;
     let mut bytes = Vec::new();
     zip.by_name(super::manifests::NATIVE_MANIFEST)
-        .map_err(|e| format!("{}: {}: {e}", path.display(), super::manifests::NATIVE_MANIFEST))?
+        .map_err(|e| {
+            format!(
+                "{}: {}: {e}",
+                path.display(),
+                super::manifests::NATIVE_MANIFEST
+            )
+        })?
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     NativeManifest::parse(&bytes)
@@ -80,14 +86,15 @@ fn verify_signature(hnmod: &Path) -> Result<String, String> {
     if !key.is_file() || !sig.is_file() {
         return Ok(format!(
             "skipped: no {} next to the bundle (unverified)",
-            key.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            key.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
         ));
     }
     let Some(cli) = registry_cli() else {
         return Ok("skipped: the registry CLI (cargo-horizon-mod) is not built".into());
     };
-    let key_text =
-        std::fs::read_to_string(&key).map_err(|e| format!("{}: {e}", key.display()))?;
+    let key_text = std::fs::read_to_string(&key).map_err(|e| format!("{}: {e}", key.display()))?;
     let key_text = key_text.trim().to_string();
     let mut cmd = Command::new(&cli);
     cmd.arg("check")
@@ -113,7 +120,10 @@ fn verify_signature(hnmod: &Path) -> Result<String, String> {
 
 /// The zip entries an `.hnmod` may hold: the manifest, the bundle under
 /// `mixins/<id>/`, optional data under `data/`. Anything else is refused.
-fn checked_entries(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+fn checked_entries(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    id: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut out = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -122,7 +132,8 @@ fn checked_entries(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Re
             continue; // directory entry
         }
         let ok = name == super::manifests::NATIVE_MANIFEST
-            || (name.starts_with(&format!("mixins/{id}/")) && !name[format!("mixins/{id}/").len()..].contains(".."))
+            || (name.starts_with(&format!("mixins/{id}/"))
+                && !name[format!("mixins/{id}/").len()..].contains(".."))
             || name.starts_with("data/");
         if !ok {
             return Err(format!("{name}: not part of an .hnmod bundle"));
@@ -150,8 +161,8 @@ pub fn install(paths: &LauncherPaths, hnmod: &Path) -> Result<InstallReport, Str
     let id = manifest.id.clone();
 
     let file = std::fs::File::open(hnmod).map_err(|e| format!("{}: {e}", hnmod.display()))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("{}: {e}", hnmod.display()))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("{}: {e}", hnmod.display()))?;
     let entries = checked_entries(&mut archive, &id)?;
 
     // Replacing a mod: the old extraction goes first.
@@ -225,7 +236,8 @@ mod tests {
         let file = std::fs::File::create(path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default();
-        zip.start_file(crate::launcher::manifests::NATIVE_MANIFEST, options).unwrap();
+        zip.start_file(crate::launcher::manifests::NATIVE_MANIFEST, options)
+            .unwrap();
         zip.write_all(
             format!(
                 r#"{{"game":"26.3","hooks":1,"horizon":"2ebf00a0281c592f79191e76fce0e7d522c6f425","id":"{id}","mixins":"5a64af938ec86b00d53d16a408aabc0038fb3e57","schema":1,"version":"1.0.0"}}"#
@@ -233,7 +245,8 @@ mod tests {
             .as_bytes(),
         )
         .unwrap();
-        zip.start_file(format!("mixins/{id}/horizon-mixin.toml"), options).unwrap();
+        zip.start_file(format!("mixins/{id}/horizon-mixin.toml"), options)
+            .unwrap();
         zip.write_all(
             format!(
                 "[mod]\nid = \"{id}\"\nversion = \"1.0.0\"\n\n[compatibility]\nhorizon_revision = \"2ebf00a0281c592f79191e76fce0e7d522c6f425\"\n"
@@ -241,7 +254,8 @@ mod tests {
             .as_bytes(),
         )
         .unwrap();
-        zip.start_file(format!("mixins/{id}/mod.rs"), options).unwrap();
+        zip.start_file(format!("mixins/{id}/mod.rs"), options)
+            .unwrap();
         zip.write_all(b"pub const MOD: u32 = 1;\n").unwrap();
         zip.start_file("data/settings.toml", options).unwrap();
         zip.write_all(b"scale = 1\n").unwrap();
@@ -251,7 +265,10 @@ mod tests {
     #[test]
     fn reads_manifest_and_installs_layout() {
         let tmp = temp_root("hnmod-install");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         std::fs::create_dir_all(paths.game_native_mods()).unwrap();
         let hnmod = tmp.join("zoomy.hnmod");
         write_hnmod(&hnmod, "zoomy");
@@ -265,7 +282,10 @@ mod tests {
         assert_eq!(report.files, 4);
         assert!(report.signature.contains("skipped"), "{}", report.signature);
         // Zip layout preserved: horizon-native.json at the root, mixins/<id>/ below.
-        assert!(report.extracted_to.join(crate::launcher::manifests::NATIVE_MANIFEST).is_file());
+        assert!(report
+            .extracted_to
+            .join(crate::launcher::manifests::NATIVE_MANIFEST)
+            .is_file());
         let mixin = report
             .extracted_to
             .join("mixins")
@@ -286,16 +306,24 @@ mod tests {
     #[test]
     fn foreign_zip_entries_are_refused() {
         let tmp = temp_root("hnmod-refuse");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         let hnmod = tmp.join("evil.hnmod");
         let file = std::fs::File::create(&hnmod).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default();
-        zip.start_file(crate::launcher::manifests::NATIVE_MANIFEST, options).unwrap();
-        zip.write_all(br#"{"game":"26.3","id":"evil","schema":1,"version":"1.0.0"}"#).unwrap();
-        zip.start_file("mixins/evil/horizon-mixin.toml", options).unwrap();
-        zip.write_all(b"[mod]\nid = \"evil\"\nversion = \"1.0.0\"\n").unwrap();
-        zip.start_file("crates/horizon-client/src/evil.rs", options).unwrap();
+        zip.start_file(crate::launcher::manifests::NATIVE_MANIFEST, options)
+            .unwrap();
+        zip.write_all(br#"{"game":"26.3","id":"evil","schema":1,"version":"1.0.0"}"#)
+            .unwrap();
+        zip.start_file("mixins/evil/horizon-mixin.toml", options)
+            .unwrap();
+        zip.write_all(b"[mod]\nid = \"evil\"\nversion = \"1.0.0\"\n")
+            .unwrap();
+        zip.start_file("crates/horizon-client/src/evil.rs", options)
+            .unwrap();
         zip.write_all(b"mod evil;").unwrap();
         zip.finish().unwrap();
         assert!(install(&paths, &hnmod).is_err());
@@ -304,7 +332,10 @@ mod tests {
     #[test]
     fn uninstall_removes_all_three() {
         let tmp = temp_root("hnmod-uninstall");
-        let paths = LauncherPaths { root: tmp.clone(), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.clone(),
+            game_home: tmp.join("game"),
+        };
         std::fs::create_dir_all(paths.game_native_mods()).unwrap();
         let hnmod = tmp.join("zoomy.hnmod");
         write_hnmod(&hnmod, "zoomy");
@@ -315,6 +346,9 @@ mod tests {
         assert_eq!(did.len(), 3, "{did:?}");
         assert!(!paths.installed_mod("zoomy").exists());
         assert!(!paths.game_native_mods().join("zoomy.hnmod").exists());
-        assert!(!super::super::modslist::is_enabled(&paths.mods_list(), "zoomy"));
+        assert!(!super::super::modslist::is_enabled(
+            &paths.mods_list(),
+            "zoomy"
+        ));
     }
 }

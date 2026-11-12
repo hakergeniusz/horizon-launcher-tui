@@ -34,13 +34,23 @@ impl DoctorReport {
     pub fn render(&self) -> String {
         let mut out = String::new();
         if let Some(rev) = &self.horizon_rev {
-            out.push_str(&format!("Horizon revision: {} (pinned source)\n", &rev[..7.min(rev.len())]));
+            out.push_str(&format!(
+                "Horizon revision: {} (pinned source)\n",
+                &rev[..7.min(rev.len())]
+            ));
         }
         if let Some(rev) = &self.mixins_rev {
-            out.push_str(&format!("Mixins revision:  {} \n", &rev[..12.min(rev.len())]));
+            out.push_str(&format!(
+                "Mixins revision:  {} \n",
+                &rev[..12.min(rev.len())]
+            ));
         }
         if let Some(profile) = self.profile {
-            out.push_str(&format!("Build profile:    {} (cargo profile {})\n", profile.name(), profile.cargo().0));
+            out.push_str(&format!(
+                "Build profile:    {} (cargo profile {})\n",
+                profile.name(),
+                profile.cargo().0
+            ));
         }
         if let Some((tag, sha)) = &self.installed_client {
             out.push_str(&format!("Installed client: {}\n  sha256: {sha}\n", tag));
@@ -61,11 +71,17 @@ impl DoctorReport {
     }
 
     pub fn failures(&self) -> usize {
-        self.checks.iter().filter(|c| c.severity == Severity::Fail).count()
+        self.checks
+            .iter()
+            .filter(|c| c.severity == Severity::Fail)
+            .count()
     }
 
     pub fn warnings(&self) -> usize {
-        self.checks.iter().filter(|c| c.severity == Severity::Warn).count()
+        self.checks
+            .iter()
+            .filter(|c| c.severity == Severity::Warn)
+            .count()
     }
 }
 
@@ -73,18 +89,34 @@ impl DoctorReport {
 pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
     let mut report = DoctorReport::default();
     let mut checks = |severity: Severity, label: &str, detail: String| {
-        report.checks.push(Check { severity, label: label.to_string(), detail });
+        report.checks.push(Check {
+            severity,
+            label: label.to_string(),
+            detail,
+        });
     };
 
     // Launcher root and native layout.
     if paths.root.is_dir() {
-        checks(Severity::Ok, "launcher root", paths.root.display().to_string());
+        checks(
+            Severity::Ok,
+            "launcher root",
+            paths.root.display().to_string(),
+        );
     } else {
-        checks(Severity::Fail, "launcher root", format!("{} does not exist", paths.root.display()));
+        checks(
+            Severity::Fail,
+            "launcher root",
+            format!("{} does not exist", paths.root.display()),
+        );
         return report;
     }
     checks(
-        if paths.native().is_dir() { Severity::Ok } else { Severity::Fail },
+        if paths.native().is_dir() {
+            Severity::Ok
+        } else {
+            Severity::Fail
+        },
         "native dir",
         paths.native().display().to_string(),
     );
@@ -97,7 +129,11 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
         report.mixins_rev = Some(rec.mixins.clone());
         let source = paths.source(&rec.horizon);
         checks(
-            if source.is_dir() { Severity::Ok } else { Severity::Fail },
+            if source.is_dir() {
+                Severity::Ok
+            } else {
+                Severity::Fail
+            },
             "pinned game source",
             if source.is_dir() {
                 format!("{} (profile {key})", source.display())
@@ -110,15 +146,27 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
                     if available.is_empty() {
                         "none".to_string()
                     } else {
-                        available.iter().map(|r| r[..7.min(r.len())].to_string()).collect::<Vec<_>>().join(", ")
+                        available
+                            .iter()
+                            .map(|r| r[..7.min(r.len())].to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     }
                 )
             },
         );
     } else if paths.built_json().is_file() {
-        checks(Severity::Warn, "built.json", "present but unreadable".to_string());
+        checks(
+            Severity::Warn,
+            "built.json",
+            "present but unreadable".to_string(),
+        );
     } else {
-        checks(Severity::Warn, "built.json", "missing (no native build yet)".to_string());
+        checks(
+            Severity::Warn,
+            "built.json",
+            "missing (no native build yet)".to_string(),
+        );
     }
 
     // Mixins tool.
@@ -128,31 +176,53 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
         .unwrap_or_else(|| MIXINS_REV.to_string());
     let tool = paths.mixins_tool(&mixins_rev);
     checks(
-        if tool.is_file() { Severity::Ok } else { Severity::Warn },
+        if tool.is_file() {
+            Severity::Ok
+        } else {
+            Severity::Warn
+        },
         "horizon-mixins tool",
         if tool.is_file() {
             tool.display().to_string()
         } else {
-            format!("{} missing (the launcher builds it on demand)", tool.display())
+            format!(
+                "{} missing (the launcher builds it on demand)",
+                tool.display()
+            )
         },
     );
 
     // Pinned toolchain.
     match paths.rust_toolchain() {
         Some((version, dir)) if version == RUST_VERSION && dir.join("bin/rustc").is_file() => {
-            checks(Severity::Ok, "pinned Rust toolchain", format!("{} ({version})", dir.display()));
+            checks(
+                Severity::Ok,
+                "pinned Rust toolchain",
+                format!("{} ({version})", dir.display()),
+            );
         }
         Some((version, dir)) => {
             checks(
                 Severity::Warn,
                 "pinned Rust toolchain",
-                format!("found {version} at {}, expected {RUST_VERSION}", dir.display()),
+                format!(
+                    "found {version} at {}, expected {RUST_VERSION}",
+                    dir.display()
+                ),
             );
         }
-        None => checks(Severity::Fail, "pinned Rust toolchain", format!("none under {}", paths.root.join("rust").display())),
+        None => checks(
+            Severity::Fail,
+            "pinned Rust toolchain",
+            format!("none under {}", paths.root.join("rust").display()),
+        ),
     }
     checks(
-        if paths.cargo_home().is_dir() { Severity::Ok } else { Severity::Warn },
+        if paths.cargo_home().is_dir() {
+            Severity::Ok
+        } else {
+            Severity::Warn
+        },
         "pinned CARGO_HOME",
         paths.cargo_home().display().to_string(),
     );
@@ -167,13 +237,24 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
                 checks(
                     Severity::Ok,
                     "launcher build.log",
-                    format!("{log} ({warnings} warning line(s), last: {last})", log = log.display()),
+                    format!(
+                        "{log} ({warnings} warning line(s), last: {last})",
+                        log = log.display()
+                    ),
                 );
             }
-            Err(e) => checks(Severity::Warn, "launcher build.log", format!("{}: {e}", log.display())),
+            Err(e) => checks(
+                Severity::Warn,
+                "launcher build.log",
+                format!("{}: {e}", log.display()),
+            ),
         }
     } else {
-        checks(Severity::Warn, "launcher build.log", format!("{} missing (no launcher build yet)", log.display()));
+        checks(
+            Severity::Warn,
+            "launcher build.log",
+            format!("{} missing (no launcher build yet)", log.display()),
+        );
     }
 
     // Settings and profile.
@@ -191,17 +272,32 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
             ),
         );
     } else {
-        checks(Severity::Warn, "launcher settings", format!("{} missing", paths.settings_json().display()));
+        checks(
+            Severity::Warn,
+            "launcher settings",
+            format!("{} missing", paths.settings_json().display()),
+        );
     }
 
     // Game data dir and the enable-state file.
     checks(
-        if paths.game_home.is_dir() { Severity::Ok } else { Severity::Warn },
+        if paths.game_home.is_dir() {
+            Severity::Ok
+        } else {
+            Severity::Warn
+        },
         "game data dir",
         paths.game_home.display().to_string(),
     );
     if !paths.mods_list().is_file() {
-        checks(Severity::Warn, "horizon-mods.txt", format!("{} missing (every mod counts as off)", paths.mods_list().display()));
+        checks(
+            Severity::Warn,
+            "horizon-mods.txt",
+            format!(
+                "{} missing (every mod counts as off)",
+                paths.mods_list().display()
+            ),
+        );
     }
 
     // Mods.
@@ -228,15 +324,36 @@ pub fn doctor(paths: &LauncherPaths) -> DoctorReport {
         checks(
             Severity::Ok,
             "installed native client",
-            format!("{} (sha256 {})", newest.tag, newest.client_sha256.clone().unwrap_or_default()),
+            format!(
+                "{} (sha256 {})",
+                newest.tag,
+                newest.client_sha256.clone().unwrap_or_default()
+            ),
         );
         report.installed_client = newest
             .client_sha256
             .clone()
             .map(|sha| (newest.tag.clone(), sha));
-        let stale: Vec<&String> = versions.iter().skip_while(|v| v.tag != newest.tag).skip(1).map(|v| &v.tag).collect();
+        let stale: Vec<&String> = versions
+            .iter()
+            .skip_while(|v| v.tag != newest.tag)
+            .skip(1)
+            .map(|v| &v.tag)
+            .collect();
         if !stale.is_empty() {
-            checks(Severity::Warn, "older native versions", format!("{} more installed ({})", stale.len(), stale.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+            checks(
+                Severity::Warn,
+                "older native versions",
+                format!(
+                    "{} more installed ({})",
+                    stale.len(),
+                    stale
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
         }
     } else {
         checks(
@@ -267,7 +384,10 @@ mod tests {
     #[test]
     fn doctor_on_missing_root_fails_fast() {
         let tmp = temp_root("doctor-missing");
-        let paths = LauncherPaths { root: tmp.join("nope"), game_home: tmp.join("game") };
+        let paths = LauncherPaths {
+            root: tmp.join("nope"),
+            game_home: tmp.join("game"),
+        };
         let report = doctor(&paths);
         assert_eq!(report.failures(), 1);
         assert_eq!(report.checks[0].label, "launcher root");
@@ -285,7 +405,10 @@ mod tests {
         // The installed client's sha256 must match an independent computation.
         if let Some((tag, sha)) = &report.installed_client {
             let client = paths.version_dir(tag).join("horizon-client");
-            assert_eq!(sha, &crate::launcher::records::file_sha256(&client).unwrap());
+            assert_eq!(
+                sha,
+                &crate::launcher::records::file_sha256(&client).unwrap()
+            );
         }
     }
 }

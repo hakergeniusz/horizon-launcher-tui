@@ -44,10 +44,7 @@ impl Profile {
     pub fn cargo(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Profile::Performance => ("fast", &[]),
-            Profile::Dev => (
-                "fast",
-                &["profile.fast.package.horizon-client.opt-level=0"],
-            ),
+            Profile::Dev => ("fast", &["profile.fast.package.horizon-client.opt-level=0"]),
             Profile::Release => ("release", &[]),
         }
     }

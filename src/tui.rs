@@ -15,7 +15,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
-    Dashboard,
+    Play,
     Mods,
     Build,
     Launch,
@@ -23,17 +23,11 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [
-        Tab::Dashboard,
-        Tab::Mods,
-        Tab::Build,
-        Tab::Launch,
-        Tab::Settings,
-    ];
+    const ALL: [Tab; 5] = [Tab::Play, Tab::Mods, Tab::Build, Tab::Launch, Tab::Settings];
 
     fn name(self) -> &'static str {
         match self {
-            Tab::Dashboard => "Dashboard",
+            Tab::Play => "Play",
             Tab::Mods => "Mods",
             Tab::Build => "Build",
             Tab::Launch => "Launch",
@@ -54,6 +48,8 @@ struct App {
     doctor: DoctorReport,
     mods: Vec<ModRow>,
     mod_cursor: usize,
+    instances: Vec<launcher::launch::VersionRow>,
+    instance_cursor: usize,
     tab: Tab,
     profile: Profile,
     build_plan: Option<Result<BuildPlan, String>>,
@@ -71,7 +67,9 @@ impl App {
             doctor: DoctorReport::default(),
             mods: Vec::new(),
             mod_cursor: 0,
-            tab: Tab::Dashboard,
+            instances: Vec::new(),
+            instance_cursor: 0,
+            tab: Tab::Play,
             profile: Profile::Performance,
             build_plan: None,
             build_scroll: 0,
@@ -82,6 +80,13 @@ impl App {
             paths,
         };
         app.refresh();
+        // The launcher's own pick (newest launchable) is where the cursor
+        // starts, so PLAY is right the first time.
+        if let Ok(tag) = launcher::launch::pick_version(&app.paths, None) {
+            if let Some(i) = app.instances.iter().position(|v| v.tag == tag) {
+                app.instance_cursor = i;
+            }
+        }
         app.profile = app.settings.effective_profile();
         app.rebuild_plan();
         app.relaunch_plan();
@@ -94,6 +99,10 @@ impl App {
         self.mods = launcher::list_mods(&self.paths).unwrap_or_default();
         if self.mod_cursor >= self.mods.len() {
             self.mod_cursor = self.mods.len().saturating_sub(1);
+        }
+        self.instances = launcher::launch::launchable_versions(&self.paths);
+        if self.instance_cursor >= self.instances.len() {
+            self.instance_cursor = self.instances.len().saturating_sub(1);
         }
     }
 
@@ -196,10 +205,9 @@ impl App {
         let paths = self.paths.clone();
         let plan_for_thread = plan.clone();
         std::thread::spawn(move || {
-            let result =
-                launcher::build_run::run_build(&paths, &plan_for_thread, |line| {
-                    let _ = tx.send(line.to_string());
-                });
+            let result = launcher::build_run::run_build(&paths, &plan_for_thread, |line| {
+                let _ = tx.send(line.to_string());
+            });
             let _ = tx.send(match result {
                 Ok(record) => format!(
                     "BUILD DONE: horizon {}, mixins {}, {} mods",
@@ -216,7 +224,9 @@ impl App {
     }
 
     fn poll_build(&mut self) {
-        let Some(runner) = &mut self.runner else { return };
+        let Some(runner) = &mut self.runner else {
+            return;
+        };
         loop {
             match runner.rx.try_recv() {
                 Ok(line) => {
@@ -224,9 +234,8 @@ impl App {
                         runner.finished = Some(Ok(()));
                         self.message = line;
                     } else if line.starts_with("BUILD FAILED:") {
-                        runner.finished = Some(Err(
-                            line.trim_start_matches("BUILD FAILED: ").to_string()
-                        ));
+                        runner.finished =
+                            Some(Err(line.trim_start_matches("BUILD FAILED: ").to_string()));
                         self.message = line;
                     } else {
                         self.log.push(line);
@@ -257,9 +266,33 @@ impl App {
         }
     }
 
+    /// PLAY: launch the instance the cursor sits on, straight from the Play
+    /// pane.
+    fn play_selected(&mut self) {
+        let Some(row) = self.instances.get(self.instance_cursor) else {
+            self.message = "no instances to play".into();
+            return;
+        };
+        let tag = row.tag.clone();
+        match launcher::launch::plan_launch(&self.paths, &tag, None)
+            .and_then(|plan| launcher::launch::spawn(&plan))
+        {
+            Ok(pid) => self.message = format!("▶ launched {tag} (pid {pid})"),
+            Err(e) => self.message = format!("launch failed: {e}"),
+        }
+    }
+
     fn handle_key(&mut self, key: crossterm::event::KeyCode) {
         match self.tab {
-            Tab::Dashboard => match key {
+            Tab::Play => match key {
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.instance_cursor =
+                        (self.instance_cursor + 1).min(self.instances.len().saturating_sub(1));
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.instance_cursor = self.instance_cursor.saturating_sub(1);
+                }
+                KeyCode::Enter | KeyCode::Char('p') => self.play_selected(),
                 KeyCode::Char('r') => {
                     self.refresh();
                     self.message = "refreshed".into();
@@ -326,8 +359,16 @@ impl App {
                 Span::raw(value),
             ]));
         };
-        push(&mut lines, "Launcher root", self.paths.root.display().to_string());
-        push(&mut lines, "Game data dir", self.paths.game_home.display().to_string());
+        push(
+            &mut lines,
+            "Launcher root",
+            self.paths.root.display().to_string(),
+        );
+        push(
+            &mut lines,
+            "Game data dir",
+            self.paths.game_home.display().to_string(),
+        );
         if let Some(rev) = &self.doctor.horizon_rev {
             push(
                 &mut lines,
@@ -336,7 +377,11 @@ impl App {
             );
         }
         if let Some(rev) = &self.doctor.mixins_rev {
-            push(&mut lines, "Mixins revision", launcher::modslist::shorten(rev));
+            push(
+                &mut lines,
+                "Mixins revision",
+                launcher::modslist::shorten(rev),
+            );
         }
         push(
             &mut lines,
@@ -345,7 +390,10 @@ impl App {
                 "{} (cargo profile {}; launcher {}, built {:?})",
                 self.settings.effective_profile().name(),
                 self.settings.effective_profile().cargo().0,
-                self.settings.launcher_profile.map(|p| p.name()).unwrap_or("-"),
+                self.settings
+                    .launcher_profile
+                    .map(|p| p.name())
+                    .unwrap_or("-"),
                 self.settings.built_profile.map(|p| p.name()),
             ),
         );
@@ -384,7 +432,10 @@ impl App {
             };
             lines.push(Line::from(vec![
                 Span::styled(format!("[{mark}] "), Style::default().fg(color)),
-                Span::styled(format!("{:<26} ", check.label), Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("{:<26} ", check.label),
+                    Style::default().fg(Color::Gray),
+                ),
                 Span::raw(check.detail.clone()),
             ]));
         }
@@ -404,7 +455,11 @@ impl App {
         for (i, row) in self.mods.iter().enumerate() {
             let cursor = if i == self.mod_cursor { ">" } else { " " };
             let state = if row.enabled { "[on ]" } else { "[off]" };
-            let color = if row.enabled { Color::Green } else { Color::DarkGray };
+            let color = if row.enabled {
+                Color::Green
+            } else {
+                Color::DarkGray
+            };
             let selected = if i == self.mod_cursor {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
             } else {
@@ -422,7 +477,10 @@ impl App {
                 .map(|r| format!(" pin {r}"))
                 .unwrap_or_default();
             lines.push(Line::from(vec![
-                Span::styled(format!("{cursor}{state} "), Style::default().fg(color).patch(selected)),
+                Span::styled(
+                    format!("{cursor}{state} "),
+                    Style::default().fg(color).patch(selected),
+                ),
                 Span::styled(
                     format!("{:<22} v{:<8} {:<14}{}", row.id, row.version, where_, pin),
                     selected,
@@ -457,7 +515,11 @@ impl App {
         }
         if let Some(runner) = &self.runner {
             lines.push(Line::from(""));
-            let state = if runner.finished.is_some() { "finished" } else { "running" };
+            let state = if runner.finished.is_some() {
+                "finished"
+            } else {
+                "running"
+            };
             lines.push(Line::from(Span::styled(
                 format!("build log ({state}) — last lines below"),
                 Style::default().fg(Color::Magenta),
@@ -486,7 +548,10 @@ impl App {
                 lines.push(Line::from(format!("version:   {}", plan.version_tag)));
                 lines.push(Line::from(format!("client:    {}", plan.client.display())));
                 lines.push(Line::from(format!("cwd:       {}", plan.cwd.display())));
-                lines.push(Line::from(format!("resources: {}", plan.resources.display())));
+                lines.push(Line::from(format!(
+                    "resources: {}",
+                    plan.resources.display()
+                )));
                 for (k, v) in &plan.env {
                     lines.push(Line::from(format!("env:       {k}={v}")));
                 }
@@ -502,17 +567,27 @@ impl App {
 
     fn settings_lines(&self) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
-        lines.push(Line::from("Build profile — what the next build compiles with:"));
+        lines.push(Line::from(
+            "Build profile — what the next build compiles with:",
+        ));
         for (i, profile) in Profile::ALL.iter().enumerate() {
             let marker = if *profile == self.profile { ">" } else { " " };
-            let color = if *profile == self.profile { Color::Cyan } else { Color::Reset };
+            let color = if *profile == self.profile {
+                Color::Cyan
+            } else {
+                Color::Reset
+            };
             lines.push(Line::from(Span::styled(
                 format!(
                     "{marker} {}. {:<12} cargo profile {}{}",
                     i + 1,
                     profile.name(),
                     profile.cargo().0,
-                    if profile.cargo().1.is_empty() { "" } else { " (+ opt-level override)" }
+                    if profile.cargo().1.is_empty() {
+                        ""
+                    } else {
+                        " (+ opt-level override)"
+                    }
                 ),
                 Style::default().fg(color),
             )));
@@ -522,7 +597,10 @@ impl App {
             "effective: {}  (tool override {:?}, launcher settings {}, built.json {:?})",
             self.settings.effective_profile().name(),
             self.settings.tool_profile.map(|p| p.name()),
-            self.settings.launcher_profile.map(|p| p.name()).unwrap_or("-"),
+            self.settings
+                .launcher_profile
+                .map(|p| p.name())
+                .unwrap_or("-"),
             self.settings.built_profile.map(|p| p.name()),
         )));
         lines.push(Line::from(""));
@@ -530,10 +608,18 @@ impl App {
             "overrides stored in: {}",
             self.paths.overrides_json().display()
         )));
-        lines.push(Line::from("the launcher's settings.json is only read, never written"));
+        lines.push(Line::from(
+            "the launcher's settings.json is only read, never written",
+        ));
         lines.push(Line::from(""));
-        lines.push(Line::from(format!("launcher root: {}", self.paths.root.display())));
-        lines.push(Line::from(format!("game data dir: {}", self.paths.game_home.display())));
+        lines.push(Line::from(format!(
+            "launcher root: {}",
+            self.paths.root.display()
+        )));
+        lines.push(Line::from(format!(
+            "game data dir: {}",
+            self.paths.game_home.display()
+        )));
         lines
     }
 }
@@ -591,7 +677,10 @@ pub fn run() -> Result<(), String> {
         }
     };
     if let Err(e) = restore() {
-        return Err(format!("restore: {e} (while exiting: {})", result.err().unwrap_or_default()));
+        return Err(format!(
+            "restore: {e} (while exiting: {})",
+            result.err().unwrap_or_default()
+        ));
     }
     result
 }
@@ -625,26 +714,33 @@ fn draw(app: &mut App, frame: &mut Frame) {
         .collect();
     frame.render_widget(Line::from(tabs), chunks[0]);
 
-    // Content.
-    let lines = match app.tab {
-        Tab::Dashboard => app.dashboard_lines(),
-        Tab::Mods => app.mods_lines(),
-        Tab::Build => app.build_lines(),
-        Tab::Launch => app.launch_lines(),
-        Tab::Settings => app.settings_lines(),
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Span::styled(
+    // Content: the Play pane gets its own two-column layout; the rest are
+    // scrolling text panes.
+    if app.tab == Tab::Play {
+        draw_play(app, frame, chunks[1]);
+    } else {
+        let lines = match app.tab {
+            Tab::Play => unreachable!("handled above"),
+            Tab::Mods => app.mods_lines(),
+            Tab::Build => app.build_lines(),
+            Tab::Launch => app.launch_lines(),
+            Tab::Settings => app.settings_lines(),
+        };
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
             app.tab.name(),
             Style::default().fg(Color::Cyan),
         ));
-    let scroll = if app.tab == Tab::Build { app.build_scroll } else { 0 };
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: false })
-        .scroll((scroll, 0));
-    frame.render_widget(paragraph, chunks[1]);
+        let scroll = if app.tab == Tab::Build {
+            app.build_scroll
+        } else {
+            0
+        };
+        let paragraph = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0));
+        frame.render_widget(paragraph, chunks[1]);
+    }
 
     // Status line: message + help.
     let running = app.runner.as_ref().is_some_and(|r| r.finished.is_none());
@@ -653,7 +749,7 @@ fn draw(app: &mut App, frame: &mut Frame) {
         Tab::Build => "p profile  b build  r recompute  up/down scroll",
         Tab::Launch => "l launch  r recompute",
         Tab::Settings => "1/2/3 set profile  r refresh",
-        Tab::Dashboard => "r refresh",
+        Tab::Play => "↑/↓ instance  Enter/p play  r refresh",
     };
     let status = Line::from(vec![
         Span::styled(
@@ -674,6 +770,164 @@ fn draw(app: &mut App, frame: &mut Frame) {
         ),
     ]);
     frame.render_widget(status, chunks[2]);
+}
+
+/// The Play pane: instances on the left with the big PLAY button under
+/// them, the launcher's state on the right.
+fn draw_play(app: &mut App, frame: &mut Frame, area: Rect) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(34), Constraint::Min(30)])
+        .split(area);
+
+    // ── Left column: the instances, then PLAY where the hand goes.
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(6), Constraint::Length(7)])
+        .split(cols[0]);
+
+    let mut instance_lines: Vec<Line> = Vec::new();
+    if app.instances.is_empty() {
+        instance_lines.push(Line::from(Span::styled(
+            "  no instances — build one in the Build tab",
+            Style::default().fg(Color::Yellow),
+        )));
+    }
+    for (i, row) in app.instances.iter().enumerate() {
+        let selected = i == app.instance_cursor;
+        let marker = if selected { "▶ " } else { "  " };
+        let style = if selected {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Reset)
+        };
+        let sha = row
+            .client_sha256
+            .as_deref()
+            .map(|s| format!("…{}", &s[..s.len().saturating_sub(8)]))
+            .unwrap_or_else(|| "—".into());
+        instance_lines.push(Line::from(vec![
+            Span::styled(format!("{marker}"), style),
+            Span::styled(format!("{:<42}", row.tag), style),
+        ]));
+        instance_lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(
+                format!("client sha256 {sha}"),
+                if selected {
+                    Style::default().fg(Color::Black).bg(Color::LightBlue)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
+            ),
+        ]));
+    }
+    frame.render_widget(
+        Paragraph::new(instance_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::LightBlue))
+                    .title(Span::styled(
+                        " Instances ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::LightBlue)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+            )
+            .wrap(Wrap { trim: false }),
+        left[0],
+    );
+
+    // The PLAY button: a filled block, the label centered, glowing green
+    // when the cursor sits on a launchable instance.
+    let launchable = app
+        .instances
+        .get(app.instance_cursor)
+        .is_some_and(|row| row.client_sha256.is_some());
+    let (label_style, border_style) = if launchable {
+        (
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Green),
+        )
+    } else {
+        (
+            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::DarkGray),
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("   ▶  P L A Y   ", label_style)),
+            Line::from(Span::styled(
+                "   Enter — launch the selected instance   ",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        ),
+        left[1],
+    );
+
+    // ── Right column: the launcher's state, pretty.
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(10)])
+        .split(cols[1]);
+    frame.render_widget(
+        Paragraph::new(vec![Line::from(vec![
+            Span::styled(
+                " Horizon Launcher ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "  the whole launcher, in your terminal",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])])
+        .block(Block::default().borders(Borders::TOP)),
+        right[0],
+    );
+    let mut status = app.dashboard_lines();
+    status.insert(
+        0,
+        Line::from(Span::styled(
+            format!(
+                "  selected: {}",
+                app.instances
+                    .get(app.instance_cursor)
+                    .map(|v| v.tag.clone())
+                    .unwrap_or_else(|| "—".into())
+            ),
+            Style::default()
+                .fg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD),
+        )),
+    );
+    frame.render_widget(
+        Paragraph::new(status)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: false }),
+        right[1],
+    );
 }
 
 fn setup() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>, Box<dyn std::error::Error>> {

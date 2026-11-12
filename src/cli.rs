@@ -133,7 +133,11 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
             );
             Ok(if report.failures() > 0 { 1 } else { 0 })
         }
-        Command::Build { profile, revision, dry_run } => {
+        Command::Build {
+            profile,
+            revision,
+            dry_run,
+        } => {
             let profile = resolve_profile(&paths, profile)?;
             let revision = choose_revision(&paths, revision.as_deref())?;
             let plan = plan_build(&paths, profile, &revision)?;
@@ -164,7 +168,11 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
             );
             Ok(0)
         }
-        Command::Launch { version, control, dry_run } => {
+        Command::Launch {
+            version,
+            control,
+            dry_run,
+        } => {
             let tag = launcher::launch::pick_version(&paths, version.as_deref())?;
             let plan = launcher::launch::plan_launch(&paths, &tag, control.as_deref())?;
             if dry_run {
@@ -183,7 +191,10 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
                 return Ok(0);
             }
             let pid = launcher::launch::spawn(&plan)?;
-            println!("Started {} (pid {pid}); its output belongs to the game, not this terminal.", plan.version_tag);
+            println!(
+                "Started {} (pid {pid}); its output belongs to the game, not this terminal.",
+                plan.version_tag
+            );
             Ok(0)
         }
         Command::Install { path } => {
@@ -201,7 +212,10 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
             );
             println!("Signature: {}", report.signature);
             if report.copied_to_game_dir {
-                println!("Bundle kept in {} (the launcher re-syncs from there).", paths.game_native_mods().display());
+                println!(
+                    "Bundle kept in {} (the launcher re-syncs from there).",
+                    paths.game_native_mods().display()
+                );
             }
             Ok(0)
         }
@@ -230,9 +244,7 @@ fn run_inner(cli: Cli) -> Result<i32, String> {
 fn resolve_profile(paths: &LauncherPaths, profile: Option<String>) -> Result<Profile, String> {
     match profile {
         Some(text) => Profile::parse(&text).ok_or_else(|| {
-            format!(
-                "unknown profile {text:?}: use performance (alias fast), dev or release"
-            )
+            format!("unknown profile {text:?}: use performance (alias fast), dev or release")
         }),
         None => Ok(crate::launcher::Settings::load(paths).effective_profile()),
     }
